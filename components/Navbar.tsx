@@ -22,6 +22,8 @@ import {
  * Logo dari /public/logo.png (disarankan 512x512 px, transparan) atau logo.svg.
  * Tema biru Persib: glass putih kebiruan, navy, dan gradasi biru.
  * Navbar disembunyikan selama opening (html[data-og="playing"]).
+ * Saat di-scroll: navbar menyusut jadi floating pill berisi logo saja.
+ * Hover / fokus keyboard pada pill akan membuka menu kembali.
  */
 
 // Ganti ke "/logo.svg" kalau kamu punya versi vektor (paling tajam)
@@ -40,6 +42,9 @@ const OG_SAFETY_MS = 8000;
 
 // Jeda tunggu Opening menyetel data-og; kalau tidak pernah diset, navbar dilepas (ms)
 const OG_GRACE_MS = 3000;
+
+// Jarak scroll (px) sebelum navbar menyusut jadi logo saja
+const SCROLL_COLLAPSE_PX = 40;
 
 // Icon = versi garis (tidak aktif), IconActive = versi solid (aktif)
 const navItems = [
@@ -124,6 +129,12 @@ const css = `
   --gap: 5px;
   --ico: 25px;
 
+  /* Jarak antar elemen (logo, separator, daftar ikon) */
+  --nv-gap: 14px;
+
+  /* Padding horizontal navbar (normal) */
+  --nv-pad: 7px;
+
   /* Ukuran gambar logo di dalam lingkaran (PIKSEL BULAT supaya tajam).
      Harus bilangan bulat dan >= --size. Makin besar = logo makin ter-zoom.
      Zoom sebelumnya 135% (75.6px, pecahan, penyebab buram). */
@@ -135,10 +146,9 @@ const css = `
 
   display: flex;
   align-items: center;
-  gap: 14px;
 
   height: 68px;
-  padding: 0 7px;
+  padding: 0 var(--nv-pad);
 
   border: 1px solid rgba(255, 255, 255, .85);
   border-radius: 999px;
@@ -163,6 +173,8 @@ const css = `
 
   animation:
     nv-in 1s ${EASE_OUT} var(--nav-at, 0s) forwards;
+
+  transition: padding .5s ${EASE_OUT};
 }
 
 @keyframes nv-in {
@@ -177,6 +189,42 @@ const css = `
   opacity: 1;
   transform: none;
   animation: none;
+}
+
+/* =========================================
+   BODY — separator + daftar ikon
+   (menyusut saat di-scroll)
+========================================= */
+
+.nv-body {
+  display: flex;
+  align-items: center;
+  gap: var(--nv-gap);
+
+  margin-left: var(--nv-gap);
+
+  /* batas atas cukup besar agar tidak memotong isi saat label terbuka */
+  max-width: 640px;
+  opacity: 1;
+
+  transition:
+    max-width .5s ${EASE_OUT},
+    margin-left .5s ${EASE_OUT},
+    opacity .3s;
+}
+
+/* Mode ringkas: hanya logo (floating pill).
+   Hover / fokus keyboard membuka kembali menu. */
+.nv--min:not(:hover):not(:focus-within) {
+  --nv-pad: 6px;
+}
+
+.nv--min:not(:hover):not(:focus-within) .nv-body {
+  max-width: 0;
+  margin-left: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
 }
 
 /* =========================================
@@ -423,17 +471,21 @@ const css = `
     --size: 48px;
     --gap: 3px;
     --ico: 22px;
+    --nv-gap: 9px;
+    --nv-pad: 6px;
 
     /* piksel bulat juga di layar kecil */
     --logo-img: 65px;
 
     height: 60px;
-    gap: 9px;
-    padding: 0 6px;
   }
 
   .nv-sep {
     height: 24px;
+  }
+
+  .nv--min:not(:hover):not(:focus-within) {
+    --nv-pad: 5px;
   }
 }
 
@@ -447,6 +499,8 @@ const css = `
     animation-delay: 0s;
   }
 
+  .nv,
+  .nv-body,
   .nv-pill,
   .nv-link,
   .nv-link::after,
@@ -473,6 +527,29 @@ export default function Navbar() {
 
   // Kalau navbar sudah pernah tampil, jangan putar animasi masuk lagi
   const [skipIntro] = React.useState(() => navPlayed);
+
+  // Saat halaman di-scroll: navbar menyusut jadi logo saja
+  const [scrolled, setScrolled] = React.useState(false);
+
+  React.useEffect(() => {
+    let raf = 0;
+
+    const onScroll = () => {
+      if (raf) return;
+      raf = window.requestAnimationFrame(() => {
+        raf = 0;
+        setScrolled(window.scrollY > SCROLL_COLLAPSE_PX);
+      });
+    };
+
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      if (raf) window.cancelAnimationFrame(raf);
+    };
+  }, []);
 
   React.useEffect(() => {
     const root = document.documentElement;
@@ -574,7 +651,9 @@ export default function Navbar() {
       <style>{css}</style>
 
       <nav
-        className={`nv${skipIntro ? " nv--static" : ""}`}
+        className={`nv${skipIntro ? " nv--static" : ""}${
+          scrolled ? " nv--min" : ""
+        }`}
         aria-label="Navigasi utama"
       >
         <Link className="nv-logo" href="/" aria-label="Beranda">
@@ -590,29 +669,31 @@ export default function Navbar() {
           />
         </Link>
 
-        <span className="nv-sep" aria-hidden="true" />
+        <div className="nv-body">
+          <span className="nv-sep" aria-hidden="true" />
 
-        <ul className="nv-list" ref={listRef}>
-          <li className="nv-pill" aria-hidden="true" />
+          <ul className="nv-list" ref={listRef}>
+            <li className="nv-pill" aria-hidden="true" />
 
-          {navItems.map(({ id, label, href, Icon, IconActive }) => {
-            const Current = active === id ? IconActive : Icon;
-            return (
-            <li key={id}>
-              <Link
-                href={href}
-                data-label={label}
-                style={{ "--n": label.length + 1 } as React.CSSProperties}
-                aria-label={label}
-                aria-current={active === id ? "page" : undefined}
-                className={`nv-link${active === id ? " is-active" : ""}`}
-              >
-                <Current aria-hidden="true" />
-              </Link>
-            </li>
-            );
-          })}
-        </ul>
+            {navItems.map(({ id, label, href, Icon, IconActive }) => {
+              const Current = active === id ? IconActive : Icon;
+              return (
+                <li key={id}>
+                  <Link
+                    href={href}
+                    data-label={label}
+                    style={{ "--n": label.length + 1 } as React.CSSProperties}
+                    aria-label={label}
+                    aria-current={active === id ? "page" : undefined}
+                    className={`nv-link${active === id ? " is-active" : ""}`}
+                  >
+                    <Current aria-hidden="true" />
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       </nav>
     </div>,
     document.body
